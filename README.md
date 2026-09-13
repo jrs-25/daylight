@@ -2,7 +2,7 @@
 
 A private, conversational mental health intake experience.
 
-Daylight guides a hero through a warm, adaptive conversation about how they've been feeling,
+Daylight guides an individual - known as a "hero" -  through a warm, adaptive conversation about how they've been feeling,
 builds an anonymous profile from what they share, enriches it with community-level mental
 health context, and closes by connecting them to resources and the option to speak with a
 therapist.
