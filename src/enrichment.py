@@ -149,13 +149,30 @@ def chr_path() -> Path | None:
 
     Resolution order: `DAYLIGHT_CHR_PATH`, then the slim CSV cache this module writes, then
     the spec's `data/chr.csv`, then any CHR-looking workbook dropped into `data/`.
+
+    The slim cache is skipped when a source file in `data/` is newer than it. Without that
+    check, dropping next year's release into `data/` would silently keep serving last year's
+    numbers — the cache would win on every run and nothing would look wrong.
     """
     explicit = os.getenv("DAYLIGHT_CHR_PATH")
-    found = _first_existing(explicit, DATA_DIR / "chr_slim.csv", DATA_DIR / "chr.csv")
-    if found:
-        return found
-    workbooks = sorted(DATA_DIR.glob("*County Health Rankings*.xls*"))
-    return workbooks[-1] if workbooks else None
+    if explicit:
+        found = _first_existing(explicit)
+        if found:
+            return found
+
+    sources = [
+        path
+        for path in [DATA_DIR / "chr.csv", *sorted(DATA_DIR.glob("*County Health Rankings*.xls*"))]
+        if path.is_file()
+    ]
+    slim = DATA_DIR / "chr_slim.csv"
+    if slim.is_file():
+        newer = [p for p in sources if p.stat().st_mtime > slim.stat().st_mtime]
+        if not newer:
+            return slim
+        log.info("%s is newer than the slim cache; re-reading it", newer[-1].name)
+
+    return sources[-1] if sources else None
 
 
 def zip_county_path() -> Path | None:
