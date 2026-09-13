@@ -22,7 +22,7 @@ from pathlib import Path
 
 import anthropic
 
-from .conversation import MODEL, TOPIC_KEYS, ConversationState
+from .conversation import LISTEN_FOR, MODEL, TOPIC_KEYS, ConversationState
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +45,15 @@ Rules:
 - If a topic was never reached, write exactly: "Not covered in this conversation."
 - A signal is something a therapist would want to know before the first session. Sleep loss \
 with a specific onset is a signal. "Seemed sad" is not.
-- Do not infer anything the hero did not say."""
+- Where the hero gave onset, duration, frequency, or impact on daily life, include it — those \
+are what a clinician maps to.
+- Distinguish "the hero said no" from "this was not asked." Both are useful; conflating them \
+is not.
+
+What a clinician would want each topic to have touched:
+""" + "\n".join(
+    f"{topic}: " + "; ".join(items) for topic, items in LISTEN_FOR.items()
+)
 
 #: The model fills these two. The rest of the vignette is assembled from known state.
 GENERATION_SCHEMA: dict = {

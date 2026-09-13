@@ -1,5 +1,10 @@
 # 🌤️ Daylight
 
+> **🚧 Active work in progress.** This is an early prototype, not a clinical product. The
+> conversation design is being anchored in validated screening constructs (PHQ-9, MDQ, C-SSRS)
+> and the crisis-detection thresholds have not yet had clinical review. Do not use it with real
+> people in distress. If you're in crisis, call or text **988** (US).
+
 A private, conversational mental health intake experience.
 
 Daylight guides an individual - known as a "hero" -  through a warm, adaptive conversation about how they've been feeling,
@@ -247,3 +252,9 @@ an extension rather than a rebuild.
 
 Pinned to `claude-sonnet-4-6` in `src/conversation.py`. One constant, used by every call in the
 system including the eval judge.
+
+---
+
+## License
+
+[MIT](LICENSE)

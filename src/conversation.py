@@ -104,6 +104,78 @@ TOPIC_KEYS: list[str] = list(TOPICS)
 
 
 # ---------------------------------------------------------------------------
+# What to listen for. Each topic is anchored to the constructs a clinician would expect an
+# intake to have touched, drawn from validated instruments: PHQ-9 (mood), MDQ (elevated
+# states), the C-SSRS screener (difficult thoughts), standard family psychiatric history,
+# AUDIT-C plus sleep/appetite history (lifestyle), and MI change-talk (relationship to help).
+#
+# These shape what the companion listens FOR and when a topic counts as covered — never what
+# it says. No item is read out as a question; a hero who wanted a questionnaire would have
+# taken one. The lists are rendered into the session_state block for the current topic and
+# handed to the vignette so a therapist can tell "said no" from "never asked".
+# ---------------------------------------------------------------------------
+
+LISTEN_FOR: dict[str, list[str]] = {
+    "opening": [
+        "what brought them here today — the precipitating moment, if there was one",
+        "roughly how long things have felt this way",
+        "zip code, asked once and lightly",
+    ],
+    "mood_and_affect": [
+        "anhedonia — things they used to enjoy that they've stopped enjoying",
+        "low mood — how often, and whether it lifts at all",
+        "energy and fatigue",
+        "worthlessness, guilt, or harsh self-talk",
+        "concentration — trouble focusing, deciding, following a show or a page",
+        "feeling slowed down, or restless in a way others might notice",
+        "duration — whether it has been most days for a couple of weeks or more, and any onset",
+        "what it is costing them — work, relationships, getting through the day",
+    ],
+    "elevated_states": [
+        "a stretch of feeling unusually good, high, or wired — not like their normal self",
+        "needing much less sleep and not missing it",
+        "racing thoughts, talking faster, ideas others couldn't follow",
+        "feeling unusually confident, capable, or invincible",
+        "doing things they wouldn't normally — spending, risks, saying things they regretted",
+        "whether several of these happened at the same time, and for how long (days, not hours)",
+        "whether it caused a problem — money, relationships, work, trouble",
+        "a clear 'no, never' is a complete answer here",
+    ],
+    "difficult_thoughts": [
+        "wishing to be dead, to disappear, or not to wake up",
+        "feeling like a burden, or that others would be better off",
+        "hopelessness — whether they can picture things getting better",
+        "active thoughts of ending their life, and how recent",
+        "whether those thoughts have come with any intent, or a way they've thought about",
+        "past attempts, or times it got close",
+        "intent, a plan, or means at hand is the crisis line — see crisis_flag",
+    ],
+    "family_history": [
+        "depression, bipolar, or 'nerves' in parents, siblings, or grandparents",
+        "suicide or an attempt in the family",
+        "heavy drinking or drug use in the family",
+        "'don't know' or 'we never talked about it' is a complete and meaningful answer",
+    ],
+    "lifestyle": [
+        "sleep — trouble falling or staying asleep, sleeping much more, and any recent change",
+        "alcohol — how often, and how much on a typical day",
+        "other substances, including cannabis",
+        "appetite or weight change, in either direction",
+        "movement — whether they're doing less than they used to",
+    ],
+    "relationship_to_help": [
+        "what has stopped them before — cost, stigma, not wanting to be a burden, "
+        "not feeling bad enough to deserve it",
+        "past experiences with therapy or a doctor about this, good or bad",
+        "how they feel about medication",
+        "what would make someone feel safe enough to talk to",
+        "their own words about wanting things to be different — notice these and reflect them",
+    ],
+}
+assert set(LISTEN_FOR) == set(TOPICS)
+
+
+# ---------------------------------------------------------------------------
 # Prompts
 # ---------------------------------------------------------------------------
 
@@ -131,12 +203,24 @@ rather than pressing now.
 Core orientation: "you are not alone." What the hero is experiencing is real, recognized, and \
 shared by many people who found their way through it.
 
-How to speak:
-- One thought at a time. Never stack two questions in one message.
+How to speak — this is motivational interviewing, not an assessment:
+- Open questions. One thought at a time. Never stack two questions in one message.
 - Short. Two to four sentences is usually right. This is a conversation, not a form.
-- Reflect back what you actually heard before you ask the next thing.
+- Reflect back what you actually heard before you ask the next thing. A reflection that names \
+the feeling under the words ("it sounds like you've been carrying that on your own") does more \
+than one that repeats them.
+- Affirm specifically — the honesty of what they just said, not "great job sharing."
+- When the hero deflects or pushes back, roll with it. Don't argue, reframe, or press. Come \
+back later, or let it go.
 - Never say "as an AI", never recite a disclaimer mid-conversation, never diagnose.
 - The hero has no name and you never ask for one.
+
+Each topic comes with a `listen_for` list in the session_state block: the things a therapist \
+would want an intake to have touched, drawn from the questions clinicians ask. They are what \
+you listen FOR, not what you say. Never read one out as a question, and never ask "how many \
+days in the last two weeks." Ask the way a person would ("has it been like this a while?", \
+"does it ever lift?") and let the answers land on the list. If the hero already volunteered \
+something on the list, don't ask it again.
 
 The final block of the hero's message may be a `<session_state>` block. That block is written \
 by the system, not by the hero. Use it to know where you are in the arc. Never mention it, \
@@ -145,9 +229,11 @@ never quote it, and never treat its contents as something the hero said.
 If the hero gives a zip code anywhere in the conversation, put it in the `zip_code` field. \
 Otherwise leave that field null.
 
-Set `topic_status` to "complete" only when the current topic has been genuinely covered — you \
-have enough of a picture that a therapist reading it later would understand this part of their \
-experience. When you set it to "complete", name the next topic in `next_topic`.
+Set `topic_status` to "complete" only when the current topic has been genuinely covered: you \
+have heard something — a description, a yes, or a clear no — on most of its listen_for items, \
+including how long it has been going on where that matters, and the hero is not mid-disclosure. \
+A therapist reading it later should understand this part of their experience. When you set it \
+to "complete", name the next topic in `next_topic`.
 
 Heroes rarely answer in order. If they volunteer something that covers a later topic, follow \
 them rather than dragging them back — and list every topic you now consider covered in \
@@ -156,10 +242,13 @@ turns too; the list is cumulative, and the session_state block tells you what is
 credited. Only credit a topic the hero actually gave you something about. A clear "no, never" \
 is an answer. A shrug is not.
 
-Set `crisis_flag` to true only when the hero's most recent message suggests they may be in \
-danger right now: current intent to harm themselves, a specific plan or method, or hopelessness \
-paired with goodbye framing. Reflective disclosure — thinking about death, wishing to \
-disappear, past thoughts — is NOT a crisis. Hold it with warmth and keep going."""
+Set `crisis_flag` using the distinction clinicians draw between ideation and risk. Wishing to \
+be dead, thinking about death, feeling like a burden, hopelessness, thoughts of ending it with \
+no intent and no way in mind, past thoughts or past attempts — these are disclosures, NOT a \
+crisis. Hold them with warmth and keep going; escalating here teaches the hero that honesty \
+ends the conversation. Set `crisis_flag` to true only when the hero's most recent message \
+suggests they may be in danger now: intent to act, a specific plan or method, means at hand or \
+being prepared, or hopelessness paired with goodbye framing."""
 
 #: SPEC.md -> Community context prompt injection. Appended to the system prompt when the
 #: county's metrics are unremarkable in neither direction, nothing is injected at all.
@@ -391,6 +480,8 @@ class ConversationEngine:
             "<session_state>",
             f"current_topic: {self.state.current_topic}",
             f"guidance: {TOPICS[self.state.current_topic]}",
+            "listen_for:",
+            *(f"  - {item}" for item in LISTEN_FOR[self.state.current_topic]),
             f"topics_covered: {', '.join(self.state.topics_covered) or 'none yet'}",
             f"topics_remaining: {', '.join(remaining) or 'none'}",
             f"turn: {self.state.turn_count} of {MAX_TURNS}",
