@@ -25,3 +25,7 @@ evals/results/
 
 # OS
 .DS_Store
+
+# Agent skill symlinks that Streamlit installs into the project on launch
+.agents/
+.claude/skills/
