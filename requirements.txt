@@ -1,0 +1,5 @@
+anthropic>=0.40
+streamlit>=1.38
+pandas>=2.0
+python-dotenv>=1.0
+openpyxl>=3.1   # reading .xlsx releases of the CHR / crosswalk data

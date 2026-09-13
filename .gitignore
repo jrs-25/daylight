@@ -1,0 +1,27 @@
+# Environment
+.env
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Local data — real CHR / HUD files are not committed (size + license)
+data/*.csv
+data/*.xlsx
+data/*.xls
+!data/samples/
+
+# Local session storage
+*.db
+*.sqlite
+*.sqlite3
+
+# Eval output
+evals/results/
+
+# OS
+.DS_Store
