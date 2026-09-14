@@ -20,7 +20,12 @@ import streamlit as st
 from dotenv import load_dotenv
 
 from src import enrichment, safety, vignette
-from src.conversation import OPENING_MESSAGE, ConversationEngine, ConversationState
+from src.conversation import (
+    OPENING_MESSAGE,
+    TOPIC_LABELS,
+    ConversationEngine,
+    ConversationState,
+)
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -107,10 +112,20 @@ def render_sidebar() -> None:
             "It isn't tied to your name, and it isn't tied to you."
         )
         if st.session_state.stage in {"conversation", "crisis"}:
-            covered = len(st.session_state.state.topics_covered)
+            state = st.session_state.state
+            covered = len(state.topics_covered)
+            remaining = state.remaining_topics()
             st.divider()
-            st.caption(f"Conversation progress — {covered} of 7 areas")
-            st.progress(covered / 7)
+            # A bare "3 of 7" told the hero nothing — it read as a form with no form. Naming
+            # the area they're in, and what is still ahead, is what makes the arc legible.
+            st.caption("Where we are")
+            st.progress(covered / 7, text=TOPIC_LABELS[state.current_topic])
+            if remaining:
+                nxt = [t for t in remaining if t != state.current_topic]
+                st.caption(
+                    "Still ahead: " + ", ".join(TOPIC_LABELS[t] for t in nxt)
+                    if nxt else "Last one."
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -150,23 +165,34 @@ def render_history() -> None:
 
 
 def render_conversation() -> None:
-    render_history()
+    # st.chat_input only pins to the viewport bottom in the main body; inside a tab it
+    # renders inline, so this turn's messages would land *below* the input box until the
+    # rerun caught up. Reserving the transcript slot first keeps the order right mid-turn.
+    transcript = st.container()
+    with transcript:
+        render_history()
 
-    if st.session_state.resumed_from_crisis:
-        st.info("We can pick up wherever you want. 988 is still there in the sidebar.")
-        st.session_state.resumed_from_crisis = False
+        if st.session_state.resumed_from_crisis:
+            st.info("We can pick up wherever you want. 988 is still there in the sidebar.")
+            st.session_state.resumed_from_crisis = False
 
-    hero_message = st.chat_input("Say as much or as little as you want…")
+    hero_message = st.chat_input(
+        "Say as much or as little as you want…",
+        # A second message sent mid-turn would be answered against stale state, and the
+        # hero would watch two replies race. Hold the input until this turn lands.
+        submit_mode="disable",
+    )
     if not hero_message:
         return
 
-    with st.chat_message("user", avatar=HERO_AVATAR):
-        st.markdown(hero_message)
+    with transcript:
+        with st.chat_message("user", avatar=HERO_AVATAR):
+            st.markdown(hero_message)
 
-    with st.chat_message("assistant", avatar=COMPANION_AVATAR):
-        with st.spinner(""):
-            result = engine().respond(hero_message)
-        st.markdown(result.message)
+        with st.chat_message("assistant", avatar=COMPANION_AVATAR):
+            with st.spinner("Reflecting…"):
+                result = engine().respond(hero_message)
+            st.markdown(result.message)
 
     if result.crisis_mode:
         st.session_state.stage = "crisis"
@@ -220,19 +246,13 @@ def close_conversation() -> None:
     state = st.session_state.state
 
     if st.session_state.closing is None and not state.crisis_flag:
-        with st.spinner(""):
+        with st.spinner("Reflecting on what you just shared…"):
             st.session_state.closing = engine().closing()
 
-    if st.session_state.vignette is None:
-        with st.spinner(""):
-            record = vignette.generate(state)
-        try:
-            vignette.save(record)
-        except Exception:
-            # A storage failure must not cost the hero their end screen.
-            logging.exception("could not save vignette %s", record["session_id"])
-        st.session_state.vignette = record
-
+    # The vignette is a 16k-token call the hero never sees — it is written for the therapist.
+    # Making them watch it generate before their own ending put a blank half-minute at the
+    # most loaded moment of the experience. It is built in render_closed instead, after the
+    # closing copy is already on screen.
     st.session_state.stage = "closed"
 
 
@@ -268,6 +288,20 @@ def render_closed() -> None:
         st.markdown(THERAPIST_HANDOFF)
 
     st.caption(f"Your session code: `{state.session_id}`")
+
+    # Deliberately the last thing in the script. The vignette is a 16k-token call written
+    # for the therapist, not the hero, so every hero-facing element above paints first and
+    # the wait lands on a page that already looks finished. It also resolves the promise the
+    # opening message makes — that what they shared becomes something they can hand over.
+    if st.session_state.vignette is None:
+        with st.spinner("Putting together what you shared…"):
+            record = vignette.generate(state)
+        try:
+            vignette.save(record)
+        except Exception:
+            # A storage failure must not cost the hero their end screen.
+            logging.exception("could not save vignette %s", record["session_id"])
+        st.session_state.vignette = record
 
 
 # ---------------------------------------------------------------------------

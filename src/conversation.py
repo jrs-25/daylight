@@ -174,6 +174,20 @@ LISTEN_FOR: dict[str, list[str]] = {
 }
 assert set(LISTEN_FOR) == set(TOPICS)
 
+#: Plain-language names for the seven areas — what the hero sees in the progress rail, and
+#: the words the companion uses when it signposts a turn. Deliberately non-clinical:
+#: "periods of high energy", never "elevated states", and never anything that hints at a label.
+TOPIC_LABELS: dict[str, str] = {
+    "opening": "Getting started",
+    "mood_and_affect": "How you've been feeling",
+    "elevated_states": "Periods of high energy",
+    "difficult_thoughts": "The harder thoughts",
+    "family_history": "Family",
+    "lifestyle": "Sleep and daily rhythms",
+    "relationship_to_help": "Getting support",
+}
+assert set(TOPIC_LABELS) == set(TOPICS)
+
 
 # ---------------------------------------------------------------------------
 # Prompts
@@ -200,8 +214,19 @@ You must cover all seven before the conversation closes. You control when to go 
 when to move on — follow the hero's lead. If they deflect, stay gentle and return later \
 rather than pressing now.
 
+Let the hero feel the arc. Early on, it is fine to name where you're going next. When you are \
+two or three areas from the end, say so — that you're getting a picture of what they've \
+shared, and that at the end it's theirs to take to someone if they want. Never recite the \
+list of seven areas, never number them, and never say "topic" or "area 4 of 7."
+
 Core orientation: "you are not alone." What the hero is experiencing is real, recognized, and \
 shared by many people who found their way through it.
+
+You are guiding this conversation, not merely following it. Motivational interviewing is \
+directive: you have somewhere to get to, and the hero should be able to feel there's a shape \
+to this even though it never feels like a form. Following the hero's lead means taking their \
+material seriously — it does not mean surrendering the arc. A conversation that only reflects \
+and never moves reads as aimless, and an aimless conversation is one the hero quietly leaves.
 
 How to speak — this is motivational interviewing, not an assessment:
 - Open questions. One thought at a time. Never stack two questions in one message.
@@ -210,6 +235,11 @@ How to speak — this is motivational interviewing, not an assessment:
 the feeling under the words ("it sounds like you've been carrying that on your own") does more \
 than one that repeats them.
 - Affirm specifically — the honesty of what they just said, not "great job sharing."
+- Summarize and signpost every time you change area. Pull together what you heard in two or \
+three clauses, then say you're turning: "So it's been flat since the spring, the sleep's been \
+broken, and you've been carrying it on your own. Can I ask you about something a bit \
+different?" This is the single move that makes the conversation feel like it is going \
+somewhere rather than drifting. Never change topic silently.
 - When the hero deflects or pushes back, roll with it. Don't argue, reframe, or press. Come \
 back later, or let it go.
 - Never say "as an AI", never recite a disclaimer mid-conversation, never diagnose.
@@ -270,6 +300,11 @@ COMMUNITY_PROMPTS: dict[str, str] = {
 OPENING_MESSAGE = (
     "I'm glad you're here. This is private — no name, no account, and nothing you say "
     "here goes anywhere you don't send it.\n\n"
+    "Here's how this goes. We'll talk for ten or fifteen minutes, and I'll ask about a few "
+    "different things — how you've been feeling, your sleep, what's gone on in your family, "
+    "what's made it hard to get help before. You can skip anything you don't want to answer. "
+    "At the end I'll put together a picture of what you told me, and it's yours — you can "
+    "hand it to a therapist instead of starting this all over again with a stranger.\n\n"
     "There's no right way to start. What's been going on that made you open this today?"
 )
 
@@ -484,6 +519,8 @@ class ConversationEngine:
             *(f"  - {item}" for item in LISTEN_FOR[self.state.current_topic]),
             f"topics_covered: {', '.join(self.state.topics_covered) or 'none yet'}",
             f"topics_remaining: {', '.join(remaining) or 'none'}",
+            f"areas_left: {len(remaining)} of 7 — "
+            + (", ".join(TOPIC_LABELS[t] for t in remaining) or "none"),
             f"turn: {self.state.turn_count} of {MAX_TURNS}",
             f"zip_collected: {'yes' if self.state.zip_code else 'no'}",
         ]
