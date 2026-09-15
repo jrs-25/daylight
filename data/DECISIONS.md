@@ -251,3 +251,31 @@ The instruments define what a clinician needs to have heard. The conversation de
 - The vignette now distinguishes "hero said no" from "not asked," which the provider view should surface
 - The `safety.py` rule layer still needs clinical review; this ADR changes the model-side threshold language only, and keeps it consistent with the rule layer's existing triggers
 - Live eval (`run_evals.py --live`) should be re-run to check topic coverage and signal extraction did not regress under the stricter completion criterion
+
+---
+
+## ADR-011: Model-Resolved County Instead of a ZIP-to-County Crosswalk
+
+**Status:** Accepted
+
+**Context:**
+Community enrichment reads County Health Rankings, which publishes both metrics Daylight uses at the county level and contains no ZIP codes or city names. Reaching a county from anything a person would actually say therefore required the HUD USPS ZIP-to-county crosswalk — a separate file behind a free account and an API token, not committed to the repo for size and licensing reasons. In practice the file was never installed, so every session resolved to `default` and the enrichment feature had never once run end to end outside the eval fixtures. The prototype was carrying a whole data dependency, and a form-shaped question in a conversation that is otherwise deliberately not a form, to reach a county it could have asked about directly.
+
+**Decision:**
+Claude resolves the hero's stated location to a US county and state as part of the normal turn contract, via new `county` and `state` fields on the turn schema. `enrichment.lookup_county()` then matches that against the CHR release directly. The hero is asked openly — "whereabouts are you — a zip code or just the town is fine" — and a town, city, county or ZIP all work equally well. Where a HUD crosswalk *is* installed, a ZIP still resolves through it first, because that path is exact; the model's county is the fallback. An unrecognized county degrades to `DEFAULT_CONTEXT`, which is the same no-injection state as an unresolvable ZIP.
+
+**Rationale:**
+County is the real unit of resolution and always was; the ZIP was only ever a lookup key that got discarded on the way. Removing the crosswalk from the critical path means enrichment works with the data already in the repo, and it makes the question conversational rather than numeric — which matters for a product whose central claim is that the first step should not feel like an intake form. A ZIP is also *more* identifying than a town for a product promising anonymity, while buying no extra precision.
+
+**Alternatives Considered:**
+- Require the HUD crosswalk — rejected for the prototype as a hard dependency on a gated download to reach data already present; retained as the production path and as the preferred source when installed
+- Census ZCTA-to-county relationship file (public, no auth) — viable and still worth adopting; ZCTAs approximate ZIPs imperfectly, and it solves only the ZIP case, not the far more natural city case
+- Ask the hero for their county directly — most precise and needs no resolution step, but people do not reliably know their county, especially in urban areas
+- Aggregate CHR to state level and ask only for state — rejected; state aggregation flattens exactly the county-level variation that makes the framing meaningful
+
+**Consequences:**
+- Enrichment runs end to end today against real CHR data, with no additional downloads
+- A hallucinated county that happens to be a real county would pass validation and enrich against the wrong place. The failure is quiet and low-stakes — the output is one sentence of community framing, never a clinical judgment — but it is a real accuracy trade and the clinical reviewer (see ADR-010) should be told about it
+- Location is now gated: the `opening` topic does not complete until the hero answers or declines twice. This is prototype behaviour to exercise the enrichment path and is flagged in the code as such; a production build should not force it
+- `zip_code` is still recorded on the vignette when the hero gives one literally, so nothing downstream changed shape
+- Eval injection now has two seams, `enrich` and `enrich_county`; the golden dataset continues to drive the ZIP path against the committed fixtures

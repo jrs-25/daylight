@@ -399,6 +399,114 @@ def _clean_metric(value) -> float | None:
     return round(float(value), 1)
 
 
+#: USPS abbreviations, so "KY" and "Kentucky" both resolve. CHR publishes full state names.
+_STATE_ABBREV: dict[str, str] = {
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
+    "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", "DC": "District of Columbia",
+    "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois",
+    "IN": "Indiana", "IA": "Iowa", "KS": "Kansas", "KY": "Kentucky", "LA": "Louisiana",
+    "ME": "Maine", "MD": "Maryland", "MA": "Massachusetts", "MI": "Michigan",
+    "MN": "Minnesota", "MS": "Mississippi", "MO": "Missouri", "MT": "Montana",
+    "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire", "NJ": "New Jersey",
+    "NM": "New Mexico", "NY": "New York", "NC": "North Carolina", "ND": "North Dakota",
+    "OH": "Ohio", "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania",
+    "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota", "TN": "Tennessee",
+    "TX": "Texas", "UT": "Utah", "VT": "Vermont", "VA": "Virginia", "WA": "Washington",
+    "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming",
+}
+
+#: Stripped from a caller-supplied county name when the exact form doesn't match. NOT applied
+#: to the CHR side: Maryland publishes both "Baltimore" and "Baltimore City", so collapsing
+#: the suffix there would merge two genuinely different counties. Trying the exact name first
+#: and the stripped form only as a fallback keeps both reachable.
+_COUNTY_SUFFIXES = (
+    " county", " parish", " borough", " census area", " municipality",
+    " city and borough", " metropolitan government",
+)
+
+
+def _normalize_place(name: str) -> str:
+    """Casefold, drop punctuation, collapse whitespace. 'St. Clair' -> 'st clair'."""
+    return re.sub(r"[^a-z0-9 ]", "", str(name).strip().lower())
+
+
+def _strip_county_suffix(name: str) -> str:
+    for suffix in _COUNTY_SUFFIXES:
+        if name.endswith(suffix):
+            return name[: -len(suffix)].strip()
+    return name
+
+
+@lru_cache(maxsize=1)
+def county_index() -> dict[tuple[str, str], str]:
+    """{(normalized county, normalized state): FIPS} built from the CHR release itself.
+
+    This is what lets a county name resolve with no crosswalk at all. CHR is the only data
+    file involved, and it is already required for the metrics.
+    """
+    chr_data = load_chr()
+    if chr_data.empty:
+        return {}
+    return {
+        (_normalize_place(row.county), _normalize_place(row.state)): str(fips)
+        for fips, row in chr_data.iterrows()
+    }
+
+
+def _context_for_fips(fips: str) -> dict:
+    """FIPS -> the context dict in SPEC.md -> Community Enrichment. One path, two callers."""
+    chr_data = load_chr()
+    if chr_data.empty or fips not in chr_data.index:
+        log.debug("FIPS %s not in CHR data", fips)
+        return dict(DEFAULT_CONTEXT)
+    row = chr_data.loc[fips]
+
+    distress = _clean_metric(row.get("pct_frequent_distress"))
+    providers = _clean_metric(row.get("mh_providers_per_100k"))
+    county = row.get("county")
+    state = row.get("state")
+
+    return {
+        "county": None if pd.isna(county) else str(county),
+        "state": None if pd.isna(state) else str(state),
+        "pct_frequent_distress": distress,
+        "mh_providers_per_100k": providers,
+        "context_type": classify(distress, providers),
+    }
+
+
+def lookup_county(county: str | None, state: str | None) -> dict:
+    """Enrich a county + state directly against County Health Rankings.
+
+    Never raises. An unrecognized county, either field missing, or a missing release all
+    produce DEFAULT_CONTEXT, exactly as an unresolvable zip does.
+    """
+    if not county or not state:
+        return dict(DEFAULT_CONTEXT)
+
+    try:
+        index = county_index()
+        if not index:
+            return dict(DEFAULT_CONTEXT)
+
+        norm_state = _normalize_place(state)
+        # A two-letter abbreviation expands; a full name passes straight through.
+        norm_state = _normalize_place(_STATE_ABBREV.get(str(state).strip().upper(), norm_state))
+
+        norm_county = _normalize_place(county)
+        fips = index.get((norm_county, norm_state)) or index.get(
+            (_strip_county_suffix(norm_county), norm_state)
+        )
+        if not fips:
+            log.debug("county %r, %r not in CHR", county, state)
+            return dict(DEFAULT_CONTEXT)
+
+        return _context_for_fips(fips)
+    except Exception:
+        log.exception("county enrichment failed for %r, %r", county, state)
+        return dict(DEFAULT_CONTEXT)
+
+
 def lookup(zip_code: str | None) -> dict:
     """Enrich a zip code with county mental health context.
 
@@ -419,24 +527,7 @@ def lookup(zip_code: str | None) -> dict:
             return dict(DEFAULT_CONTEXT)
         fips = crosswalk.at[normalized, "fips"]
 
-        chr_data = load_chr()
-        if chr_data.empty or fips not in chr_data.index:
-            log.debug("FIPS %s not in CHR data", fips)
-            return dict(DEFAULT_CONTEXT)
-        row = chr_data.loc[fips]
-
-        distress = _clean_metric(row.get("pct_frequent_distress"))
-        providers = _clean_metric(row.get("mh_providers_per_100k"))
-        county = row.get("county")
-        state = row.get("state")
-
-        return {
-            "county": None if pd.isna(county) else str(county),
-            "state": None if pd.isna(state) else str(state),
-            "pct_frequent_distress": distress,
-            "mh_providers_per_100k": providers,
-            "context_type": classify(distress, providers),
-        }
+        return _context_for_fips(fips)
     except Exception:
         # Belt and braces. Nothing in an enrichment lookup is worth interrupting a hero for.
         log.exception("enrichment failed for zip %s", normalized)

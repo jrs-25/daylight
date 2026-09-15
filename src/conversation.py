@@ -66,9 +66,13 @@ STALL_AFTER = 3
 TOPICS: dict[str, str] = {
     "opening": (
         "Warm entry — why the hero is here, what made them start this conversation today. "
-        "No clinical framing. Somewhere in this topic, ask where they are in the world by "
-        "zip code, framed as helping you understand what support looks like near them. Ask "
-        "once, lightly, and accept a refusal without pushing."
+        "No clinical framing. Once they have answered that first question, ask where they "
+        "are before you move on. Something close to: 'Could you share whereabouts you are — "
+        "a zip code or just the town is fine — so I can be aware of what mental health "
+        "support looks like in your area?' Ask it as its own short turn, not bolted onto "
+        "another question. A town, a city, a county or a zip all work equally well; take "
+        "whatever they offer and never ask them to be more precise. If they decline or "
+        "deflect, ask once more later in the conversation and then let it go for good."
     ),
     "mood_and_affect": (
         "Losing interest in things they usually enjoy. Frequency of low mood. Negative "
@@ -119,7 +123,9 @@ LISTEN_FOR: dict[str, list[str]] = {
     "opening": [
         "what brought them here today — the precipitating moment, if there was one",
         "roughly how long things have felt this way",
-        "zip code, asked once and lightly",
+        "where they are — a zip, town, city or county, any of which is enough; required "
+        "before this topic completes (see the note in the system prompt), though a refusal "
+        "asked twice also settles it",
     ],
     "mood_and_affect": [
         "anhedonia — things they used to enjoy that they've stopped enjoying",
@@ -256,8 +262,20 @@ The final block of the hero's message may be a `<session_state>` block. That blo
 by the system, not by the hero. Use it to know where you are in the arc. Never mention it, \
 never quote it, and never treat its contents as something the hero said.
 
-If the hero gives a zip code anywhere in the conversation, put it in the `zip_code` field. \
-Otherwise leave that field null.
+Whenever the hero says anything about where they are — a zip code, a town, a city, a \
+neighbourhood, a county, "just outside Asheville" — work out which US county and state that \
+place sits in, and put them in the `county` and `state` fields. Give the county's own name \
+without the word "County" ("Knox", not "Knox County") and the full state name ("Kentucky", \
+not "KY"). If they gave a literal zip code, also put it in `zip_code`. If you are not \
+confident which county a place is in, leave `county` and `state` null rather than guessing — \
+a wrong county is worse than none, and none is handled gracefully.
+
+Where the hero lives is collected early and deliberately. Do not mark the `opening` topic \
+complete until either they have told you where they are or they have declined twice — one \
+gentle second ask, later, and then never again. It is the one piece of information this \
+conversation actively goes after, because it is what lets you know what support near them \
+actually looks like. Ask warmly and plainly, never as a form field, and never explain it as \
+data collection.
 
 Set `topic_status` to "complete" only when the current topic has been genuinely covered: you \
 have heard something — a description, a yes, or a clear no — on most of its listen_for items, \
@@ -353,10 +371,25 @@ TURN_SCHEMA: dict = {
             "anyOf": [{"type": "string"}, {"type": "null"}],
             "description": "The hero's 5-digit zip if they gave one this turn, else null.",
         },
+        # The model geocodes; there is no crosswalk file in play. County + state is the
+        # granularity County Health Rankings publishes at, so this is the level that
+        # matters — a zip only ever mattered as a way of reaching it.
+        "county": {
+            "anyOf": [{"type": "string"}, {"type": "null"}],
+            "description": (
+                "The US county the hero's stated location sits in, without the word "
+                "'County'. Null if they haven't said where they are, or if you are not "
+                "confident which county it is."
+            ),
+        },
+        "state": {
+            "anyOf": [{"type": "string"}, {"type": "null"}],
+            "description": "Full state name for `county`, e.g. 'Kentucky'. Null if unknown.",
+        },
     },
     "required": [
         "message", "topic_status", "crisis_flag", "next_topic", "zip_code",
-        "topics_covered_now",
+        "county", "state", "topics_covered_now",
     ],
     "additionalProperties": False,
 }
@@ -482,8 +515,10 @@ class ConversationEngine:
             engine takes state as a parameter so that turning it on is a storage change,
             not a rewrite.
         client: Anthropic client. Injectable so the evals can drive a stub.
-        enrich: Zip lookup. Injectable so the evals can pin community context without
-            touching the data files.
+        enrich: Zip lookup, via the HUD crosswalk when one is present. Injectable so the
+            evals can pin community context without touching the data files.
+        enrich_county: County + state lookup straight against County Health Rankings, used
+            when there is no crosswalk or the zip does not resolve. Also injectable.
     """
 
     def __init__(
@@ -491,10 +526,12 @@ class ConversationEngine:
         state: ConversationState | None = None,
         client: anthropic.Anthropic | None = None,
         enrich: Callable[[str | None], dict] = enrichment.lookup,
+        enrich_county: Callable[[str | None, str | None], dict] = enrichment.lookup_county,
     ) -> None:
         self.state = state or ConversationState()
         self.client = client or anthropic.Anthropic()
         self._enrich = enrich
+        self._enrich_county = enrich_county
         if not self.state.history:
             self.state.history.append({"role": "assistant", "content": OPENING_MESSAGE})
 
@@ -522,8 +559,19 @@ class ConversationEngine:
             f"areas_left: {len(remaining)} of 7 — "
             + (", ".join(TOPIC_LABELS[t] for t in remaining) or "none"),
             f"turn: {self.state.turn_count} of {MAX_TURNS}",
-            f"zip_collected: {'yes' if self.state.zip_code else 'no'}",
+            "location_collected: "
+            + ("yes" if self.state.community_context.get("county") else "no"),
         ]
+        # PROTOTYPE BEHAVIOUR: the zip is pushed for harder than a production build
+        # probably should. Community enrichment is the one feature that cannot be
+        # exercised at all without it, and a soft single ask was leaving most test
+        # sessions with no zip and no community context. Revisit before real users.
+        if not self.state.community_context.get("county") and self.state.turn_count >= 2:
+            lines.append(
+                "location_still_missing: yes — you do not know where the hero is yet. "
+                "Unless they have already declined twice, ask now as its own short turn — "
+                "a zip code or just the town, whichever they'd rather — then carry on."
+            )
         if self.state.turns_on_topic >= STALL_AFTER and remaining:
             lines.append(
                 f"turns_on_this_topic: {self.state.turns_on_topic} — you have been here a "
@@ -582,8 +630,9 @@ class ConversationEngine:
                 TurnResult(message=message, assessment=assessment, error="api_error")
             )
 
-        if payload.get("zip_code") and not self.state.zip_code:
-            self._capture_zip(str(payload["zip_code"]))
+        self._capture_location(
+            payload.get("zip_code"), payload.get("county"), payload.get("state")
+        )
 
         assessment = safety.assess(hero_message, bool(payload.get("crisis_flag")))
         message = str(payload.get("message") or FALLBACK_MESSAGE).strip()
@@ -650,20 +699,44 @@ class ConversationEngine:
         self.state.current_topic = next_topic if next_topic in remaining else remaining[0]
         self.state.turns_on_topic = 0
 
-    def _capture_zip(self, raw_zip: str) -> None:
-        """Record the zip and resolve community context.
+    def _capture_location(
+        self, raw_zip: str | None, county: str | None, state: str | None
+    ) -> None:
+        """Resolve community context from wherever the hero said they were.
 
-        Synchronous: it is a dataframe lookup, and `enrichment.warm_cache()` has already
+        Two sources, tried in order of precision. A zip resolved through the HUD crosswalk is
+        exact, so it wins when a crosswalk is installed. Otherwise the county the model
+        geocoded is used directly — County Health Rankings is published per county, so that
+        is the granularity that was always being reached for, and it needs no crosswalk at
+        all. Neither resolving leaves the hero on DEFAULT_CONTEXT with no injection, which is
+        the same state as never having asked.
+
+        Synchronous: these are dataframe lookups, and `enrichment.warm_cache()` has already
         absorbed the one slow read on the welcome screen. Doing it here rather than in a
         thread avoids Streamlit rerun races entirely.
         """
-        self.state.zip_code = raw_zip.strip()
-        context = self._enrich(raw_zip)
+        if raw_zip and not self.state.zip_code:
+            self.state.zip_code = str(raw_zip).strip()
+
+        # First location answer wins; later mentions never overwrite a resolved context.
+        if self.state.community_context.get("county"):
+            return
+
+        context, source = dict(enrichment.DEFAULT_CONTEXT), "none"
+        if raw_zip:
+            context, source = self._enrich(str(raw_zip).strip()), "zip"
+        if not context.get("county") and county:
+            context, source = self._enrich_county(county, state), "county"
+        if not context.get("county"):
+            return
+
         self.state.community_context = context
         log.info(
-            "session %s enriched: zip=%s context=%s",
+            "session %s enriched via %s: %s, %s -> %s",
             self.state.session_id,
-            self.state.zip_code,
+            source,
+            context.get("county"),
+            context.get("state"),
             context.get("context_type"),
         )
 

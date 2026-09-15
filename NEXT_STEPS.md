@@ -124,6 +124,20 @@ Also unresolved from the Sep 14 session: **should the hero see their own vignett
 The new opening promises them "a picture of what you told me, and it's yours" — the end screen
 does not currently deliver it. Decide rather than drift; it would be ADR-012.
 
+**Vignettes are only written on a clean exit.** A vignette is generated at the end of
+`render_closed`, which is reached either when all seven topics are covered (or turn 60) or when
+a hero clicks through the crisis screen to close. Anyone who abandons mid-conversation, reloads
+the page, or shuts the tab after escalating produces no record at all — nothing partial is
+written.
+
+That biases the Provider View toward heroes who completed all seven areas and waited for their
+ending, which is close to the opposite of the population the product exists for: the sessions
+most clinically significant are the ones least likely to end politely. For the prototype it is
+defensible (the vignette is a matching artifact, and there is nobody to match if the hero left),
+but if the provider side should reflect reality, the fix is writing the vignette incrementally —
+say once `difficult_thoughts` is covered, updating on each subsequent topic — rather than only
+at a clean exit. That is a design change, not a tweak, and wants its own ADR.
+
 ---
 
 ## 5. Product questions (after 2–4, not before)
