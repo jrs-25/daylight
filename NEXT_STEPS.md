@@ -38,14 +38,38 @@ cd ~/daylight
 
 ---
 
-## 1. First session back (an hour)
+## 0. Pick up here: close the eval gaps
+
+**You are one live run away from a before/after.** Three prompt changes are stacked and
+unevaluated, which means nothing since Sep 13 has been measured:
+
+1. `LISTEN_FOR` completion criterion (Sep 13) — stricter `topic_status: complete`
+2. Guiding stance + mandatory transitional summaries (Sep 14) — more tokens per turn
+3. Location gate (Sep 14) — `opening` cannot complete until the hero answers or declines
+   twice, and the scripted golden-dataset heroes cannot adapt to being asked
+
+Any of the three could move `topic_coverage`; (3) is the most likely. Do this in order:
+
+- [ ] `cp evals/results/summary.json evals/results/summary-before.json` — preserve the
+      baseline before it is overwritten
+- [ ] `.venv/bin/python evals/run_evals.py --live` (~130 API calls; top up credits first)
+- [ ] Write down what moved and why. *This is the artifact* — "here is the metric, here is
+      the change, here is what moved" is the difference between having written evals and
+      having used them to make a decision
+- [ ] **Add county-path coverage to the offline suite.** `check_community_context` calls
+      `enrichment.lookup()` — the ZIP path — so `lookup_county()`, which is now the default
+      in every real session, has zero eval coverage. Cheap, deterministic, no API key:
+      assert `("Knox County", "KY") -> high_distress`, `("St. Clair", "AL") ->
+      provider_shortage`, Baltimore vs. Baltimore City stay distinct, and nonsense ->
+      `default`
+- [ ] Offline evals in CI (see section 3.3) so this cannot silently rot again
+
+---
+
+## 1. Then: first session back (an hour)
 
 1. **`git push`** and flip the repo to public.
-2. **Run the live eval**: `run_evals.py --live`. Two prompt changes are now stacked and
-   unevaluated — the stricter `topic_status: complete` criterion (Sep 13) and the guiding
-   stance plus mandatory summaries (Sep 14). Either could move `topic_coverage`; the summaries
-   also add tokens per turn, so watch whether the arc still finishes inside 60 turns. Copy
-   `evals/results/summary.json` aside first so you have a before/after.
+2. **Run the live eval** — see section 0, which now covers this in detail.
 3. **Play through three personas yourself** — partly done Sep 14; the dialogue fixes above
    came out of it, but the bipolar and sparse/evasive presentations still need a pass. in the app — a clear depression presentation, a
    bipolar-leaning one, and someone evasive/sparse — and read the resulting vignettes in the
