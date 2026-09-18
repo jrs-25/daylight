@@ -1,5 +1,7 @@
 # 🌤️ Daylight
 
+[![evals](https://github.com/jrs-25/daylight/actions/workflows/evals.yml/badge.svg)](https://github.com/jrs-25/daylight/actions/workflows/evals.yml)
+
 > **🚧 Active work in progress.** This is an early prototype, not a clinical product. The
 > conversation design is being anchored in validated screening constructs (PHQ-9, MDQ, C-SSRS)
 > and the crisis-detection thresholds have not yet had clinical review. Do not use it with real

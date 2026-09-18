@@ -62,7 +62,10 @@ Any of the three could move `topic_coverage`; (3) is the most likely. Do this in
       assert `("Knox County", "KY") -> high_distress`, `("St. Clair", "AL") ->
       provider_shortage`, Baltimore vs. Baltimore City stay distinct, and nonsense ->
       `default`
-- [ ] Offline evals in CI (see section 3.3) so this cannot silently rot again
+- [x] ~~Offline evals in CI~~ — done Sep 18, `.github/workflows/evals.yml`, badge in README.
+      Runs crisis rules + enrichment on every push and PR, no API key needed. Verified it
+      goes red on a real failure (empty crosswalk -> 4 cases fail -> exit 1) and green on a
+      clean checkout using only the committed `data/samples/` fixtures
 
 ---
 

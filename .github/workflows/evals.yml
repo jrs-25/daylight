@@ -1,0 +1,41 @@
+# Offline evals on every push and PR.
+#
+# Only the deterministic layers run here: the crisis rule layer in src/safety.py and the
+# community enrichment lookups. They need no API key and no network, so they are free to run
+# on every commit — which is the point, since those are the two layers where a silent
+# regression is most costly.
+#
+# The live metrics (topic_coverage, signal_extraction) replay conversations through Claude
+# and cost roughly 130 API calls per run. Those stay manual: `python evals/run_evals.py --live`.
+#
+# The suite runs against the committed fixtures in data/samples/, so it does not depend on the
+# County Health Rankings release or the HUD crosswalk, neither of which is in the repo.
+
+name: evals
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  offline:
+    name: Offline evals (crisis rules + enrichment)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # requirements.txt rather than a trimmed CI-only list: one file to keep honest, and
+      # the extra install time is cached between runs.
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Exits non-zero if any case fails, and prints the failing case and metric.
+      - name: Run offline evals
+        run: python evals/run_evals.py
