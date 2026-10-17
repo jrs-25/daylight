@@ -1,15 +1,23 @@
-# Daylight — Next Steps
+# Daylight — Known Gaps and Future Work
 
-*Written 2026-09-13, updated 2026-09-14. A plan for picking the prototype back up, in
-recommended order. Revise freely; delete sections as they're done.*
+*Written 2026-09-13, last updated 2026-10-17.*
+
+**Active development stopped on 2026-10-17.** The prototype does what it was built to
+demonstrate: a warm, adaptive, anonymous intake conversation that produces a clinically
+legible vignette. What follows is an honest account of what is unfinished, unvalidated, or
+known to be wrong — recorded so the limitations travel with the code rather than being
+rediscovered. Nothing here is a commitment to build.
+
+The one thing that would most change this project's standing is not code: **it has never been
+reviewed by a clinician** (section 2).
 
 ---
 
 ## Where things stand
 
 - The app runs end to end: hero conversation → vignette → Provider View. Community
-  enrichment works when the CHR workbook is in `data/`; the HUD ZIP→county crosswalk is
-  **not** downloaded yet, so enrichment currently resolves to `default`.
+  enrichment resolves a county from whatever the hero says about where they are, matched
+  against the County Health Rankings release — no ZIP crosswalk required (ADR-011).
 - **Sep 13:** each topic now carries a `LISTEN_FOR` list of clinical constructs (PHQ-9, MDQ,
   C-SSRS, AUDIT-C, MI) that shapes what the companion listens for and when a topic counts as
   covered. See ADR-010 in `data/DECISIONS.md`.
@@ -38,47 +46,84 @@ cd ~/daylight
 
 ---
 
-## 0. Pick up here: close the eval gaps
+## 0. Eval results — the breadth/depth trade
 
-**You are one live run away from a before/after.** Three prompt changes are stacked and
-unevaluated, which means nothing since Sep 13 has been measured:
+The full suite was run on 2026-10-17 against a 2026-09-13 baseline, measuring three stacked
+prompt changes. Raw results are in `evals/results/` (gitignored); the baseline is preserved as
+`summary-before.json`.
+
+| metric | Sep 13 | Oct 17 | |
+|---|---|---|---|
+| crisis_detection | 12/12 | 12/12 | — |
+| community_context | 12/12 | 12/12 | — |
+| **topic_coverage** | **11/12** | **5/12** | **−6** |
+| **signal_extraction** | **10/12** | **12/12** | **+2** |
+
+**The regression is concentrated on the final topic.** `relationship_to_help` is missing in 7
+of 12 cases, and in 5 of those it is the *only* miss. The cause is visible in the transcript
+lengths: golden cases carry 8–10 hero turns, and each of the three changes costs turns —
+transitional summaries spend one at every topic change, the location gate holds `opening`
+until the hero answers or declines twice, and the stricter `LISTEN_FOR` criterion keeps each
+topic open longer. Roughly one to two turns of arc progress, which is enough to strand topic
+seven inside a ten-turn budget.
+
+Two caveats on reading that −6 as damage:
+
+1. **Replay overstates it.** A real session runs to 60 turns (`GRACEFUL_CLOSE_AT` 52), not 10.
+   A real hero keeps answering, so the companion would reach topic seven. The *direction* is
+   real — the arc is genuinely slower — but the magnitude is partly an artifact of the fixed
+   transcript, which `run_evals.py` has flagged in its own docstring since it was written.
+2. **Signal extraction improved.** 10/12 → 12/12, mean recall 84%. The vignettes got better
+   while covering fewer topics, which is what trading breadth for depth looks like. case_009,
+   the most important negative case in the set, went False → True on coverage while still
+   correctly refusing to escalate.
+
+The honest conclusion is a **breadth-for-depth trade, not a bug** — and the right next move
+would be to decide which the product actually wants rather than to "fix" the number. Options,
+roughly in order of appeal: raise the turn budget per topic and let conversations run longer;
+let the companion batch two listen_for items into one question when the hero is terse; or
+accept that an intake which goes deep on five areas may be worth more to a therapist than one
+that skims seven. That decision wants a clinician's input, which brings it back to section 2.
+
+**Remaining eval gaps:**
+
+- [ ] `lookup_county()` has **zero eval coverage**. `check_community_context` drives
+      `enrichment.lookup()` — the ZIP path — while the county path is what every real session
+      now uses. Cheap and deterministic to add: assert `("Knox County", "KY") ->
+      high_distress`, `("St. Clair", "AL") -> provider_shortage`, Baltimore vs. Baltimore City
+      stay distinct, nonsense -> `default`
+- [ ] Longer golden transcripts, so `topic_coverage` measures the arc rather than the budget
+
+*Historical note — the three changes measured above:*
 
 1. `LISTEN_FOR` completion criterion (Sep 13) — stricter `topic_status: complete`
 2. Guiding stance + mandatory transitional summaries (Sep 14) — more tokens per turn
 3. Location gate (Sep 14) — `opening` cannot complete until the hero answers or declines
    twice, and the scripted golden-dataset heroes cannot adapt to being asked
 
-Any of the three could move `topic_coverage`; (3) is the most likely. Do this in order:
+Prediction at the time was that (3) would be the biggest mover. It was not — the effect was
+cumulative across all three, and showed up as turn budget rather than as any one change.
 
-- [ ] `cp evals/results/summary.json evals/results/summary-before.json` — preserve the
-      baseline before it is overwritten
-- [ ] `.venv/bin/python evals/run_evals.py --live` (~130 API calls; top up credits first)
-- [ ] Write down what moved and why. *This is the artifact* — "here is the metric, here is
-      the change, here is what moved" is the difference between having written evals and
-      having used them to make a decision
-- [ ] **Add county-path coverage to the offline suite.** `check_community_context` calls
-      `enrichment.lookup()` — the ZIP path — so `lookup_county()`, which is now the default
-      in every real session, has zero eval coverage. Cheap, deterministic, no API key:
-      assert `("Knox County", "KY") -> high_distress`, `("St. Clair", "AL") ->
-      provider_shortage`, Baltimore vs. Baltimore City stay distinct, and nonsense ->
-      `default`
-- [x] ~~Offline evals in CI~~ — done Sep 18, `.github/workflows/evals.yml`, badge in README.
-      Runs crisis rules + enrichment on every push and PR, no API key needed. Verified it
-      goes red on a real failure (empty crosswalk -> 4 cases fail -> exit 1) and green on a
-      clean checkout using only the committed `data/samples/` fixtures
+Offline evals run in CI on every push (`.github/workflows/evals.yml`, badge in README),
+covering crisis rules and enrichment with no API key. Verified in both directions: red on a
+real failure (empty crosswalk → 4 cases fail → exit 1), green on a clean checkout using only
+the committed `data/samples/` fixtures.
 
 ---
 
-## 1. Then: first session back (an hour)
+## 1. If picking this back up (an hour)
 
-1. **`git push`** and flip the repo to public.
-2. **Run the live eval** — see section 0, which now covers this in detail.
-3. **Play through three personas yourself** — partly done Sep 14; the dialogue fixes above
-   came out of it, but the bipolar and sparse/evasive presentations still need a pass. in the app — a clear depression presentation, a
-   bipolar-leaning one, and someone evasive/sparse — and read the resulting vignettes in the
-   Provider View. The question to hold: *would a therapist recognize this as an intake?*
-4. **Download the HUD crosswalk** (free account, `data/zip_county.csv`) so community context
-   actually fires during manual testing.
+1. **Play through three presentations in the app** — a clear depression presentation, a
+   bipolar-leaning one, and someone evasive or sparse — and read the resulting vignettes in
+   the Provider View. The question to hold: *would a therapist recognize this as an intake?*
+   Partly done Sep 14; the dialogue fixes in section 0 came out of it, but the bipolar and
+   sparse presentations were never walked through.
+2. **Watch for the section 0 finding in the wild.** Does a real conversation reach
+   `relationship_to_help`, or does it close first? Replay said five of twelve did not, but
+   replay only had ten turns to work with. This is the cheapest way to tell whether the
+   breadth/depth trade matters in practice.
+3. **Re-run the live eval after any prompt change** — `run_evals.py --live`, ~130 API calls.
+   Preserve `evals/results/summary.json` first; section 0 is the current baseline.
 
 ---
 
@@ -121,8 +166,8 @@ can't adapt to what the companion actually asked. Three improvements, in order o
    one question per turn; no verbatim screening items ("how many days in the last two
    weeks"); reflection before question; no diagnostic labels. Cheap, and they'll catch prompt
    regressions the coverage metric can't.
-3. **CI.** A GitHub Action that runs the *offline* evals on every push — free for a public repo,
-   and it keeps `safety.py` and `enrichment.py` honest. Live evals stay manual.
+3. ~~**CI.**~~ Done Sep 18 — `.github/workflows/evals.yml` runs the offline evals on every
+   push and PR. Live evals stay manual.
 
 ---
 
@@ -194,7 +239,8 @@ clinically validated. Listed so they don't get lost:
 
 ---
 
-## Recommended order, in one line
+## If someone picks this up
 
-Push → live eval → play three personas → **find a clinician** → encode what they say as golden
-cases → simulated hero → provider coverage grid. Everything else waits.
+**Find a clinician first.** Everything else in this document is an engineering opinion about a
+clinical product, and the eval result in section 0 — whether depth on five areas beats breadth
+across seven — is exactly the kind of question that cannot be answered from inside the code.

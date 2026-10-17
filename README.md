@@ -42,19 +42,19 @@ streamlit run app.py
 The app opens on two tabs: **Daylight** (the hero's conversation) and **Provider View** (the
 therapist-facing vignette).
 
-Without the data files described below, the app runs fine — community enrichment simply
+Without the data file described below, the app runs fine — community enrichment simply
 resolves to `default` and no community framing is injected.
 
 ---
 
 ## Data
 
-Two files drive community enrichment, and neither is committed (size and licensing):
+One file drives community enrichment, and it is not committed (size and licensing):
 
 | File | Source | Notes |
 |---|---|---|
-| County Health Rankings annual release | [countyhealthrankings.org](https://www.countyhealthrankings.org/health-data) | Public download. Drop the `.xlsx` straight into `data/` — no renaming needed. |
-| HUD USPS ZIP-to-county crosswalk | [huduser.gov](https://www.huduser.gov/portal/datasets/usps_crosswalk.html) | Free account + API token required. Save as `data/zip_county.csv`. |
+| County Health Rankings annual release | [countyhealthrankings.org](https://www.countyhealthrankings.org/health-data) | Public download. Drop the `.xlsx` straight into `data/` — no renaming needed. **Required.** |
+| HUD USPS ZIP-to-county crosswalk | [huduser.gov](https://www.huduser.gov/portal/datasets/usps_crosswalk.html) | Free account + API token. **Optional** — save as `data/zip_county.csv`. CHR publishes per county, and Claude resolves whatever the hero says about where they are to a county directly, so this is only needed for exact ZIP resolution. See ADR-011. |
 
 `enrichment.py` resolves both files by convention, or from `DAYLIGHT_CHR_PATH` /
 `DAYLIGHT_ZIP_COUNTY_PATH`. It reads `.csv`, `.xlsx`, and `.xls`, and resolves column names
@@ -79,9 +79,12 @@ lookup is instant.
 `data/samples/` holds small committed fixtures (6 counties, 6 zips) so the evals run against
 known values with no real data present.
 
-**Currently missing:** the HUD crosswalk. Until it's in place, every session resolves to
-`context_type: "default"` and community framing never activates. The CHR half is wired and
-verified against the 2025 release.
+Community enrichment works with the CHR release alone. Claude resolves the hero's stated
+location — a town, city, county or ZIP — to a US county as part of the turn contract, and that
+is matched against CHR directly; an unrecognized county degrades to `context_type: "default"`
+with no framing injected. When a HUD crosswalk *is* installed, a ZIP resolves through it
+first, because that path is exact. See ADR-011 for the trade-off, including the case this
+cannot catch: a hallucinated county that happens to be a real one.
 
 ---
 
